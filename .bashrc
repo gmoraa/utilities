@@ -20,6 +20,9 @@ HISTTIMEFORMAT="%F %T "
 # change PATH binaries
 export PATH=$PATH:/usr/local/bin
 
+# reduce prompt directory lenght to 1 level
+export PROMPT_DIRTRIM=1
+
 # check the window size after each command and, if necessary,
 # update the values of LINES and COLUMNS.
 shopt -s checkwinsize
