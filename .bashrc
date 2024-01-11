@@ -103,6 +103,8 @@ alias gc='git clone'
 alias ga='git add'
 alias gc='git commit -m'
 alias gb='git branch'
+alias gpl='git pull'
+alias gps='git push'
 alias du='du -sh ./*'
 alias tf='terraform'
 
