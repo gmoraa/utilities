@@ -104,6 +104,7 @@ alias ga='git add'
 alias gc='git commit -m'
 alias gb='git branch'
 alias du='du -sh ./*'
+alias tf='terraform'
 
 # Add an "alert" alias for long running commands.  Use like so:
 #   sleep 10; alert
