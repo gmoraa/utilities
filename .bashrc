@@ -134,3 +134,11 @@ fi
 
 # vim configuration
 echo "set number" > ~/.vimrc
+
+# Enable persistent reverse-i-search
+if [ -n "$PS1" ]; then
+    bind '"\e[A": history-search-backward'
+    bind '"\e[B": history-search-forward'
+    bind '"\e[C": forward-char'
+    bind '"\e[D": backward-char'
+fi
