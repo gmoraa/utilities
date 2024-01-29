@@ -4,6 +4,9 @@ case $- in
       *) return;;
 esac
 
+# keep ssh sessions alive
+export SSH_ALIVE_INTERVAL=10
+
 # don't put duplicate lines or lines starting with space in the history.
 # See bash(1) for more options
 HISTCONTROL=ignoreboth
