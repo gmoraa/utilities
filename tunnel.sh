@@ -1,14 +1,10 @@
 #!/bin/bash -eu
 
-# Set your Security group ID and EC2 instance ID
-sg_group=""
-ec2_instance=""
-
 # Validate input arguments
 if [[ $# -ne 1 ]]
 then
 	echo "Possible arguments are: 'ip' to whitelist your IP or 'key' to upload your ssh key."
-	exit 1
+	exit 10
 fi
 
 if ! aws sts get-caller-identity >> /dev/null
@@ -22,61 +18,98 @@ ip () {
     ip=$(curl -s -4 icanhazip.com)
     cidr="$ip/32"
     user=$(whoami)
-    counter=-1
+    counter=0
     existing_user=false
-    rules=$(
-        aws ec2 describe-security-group-rules \
-        --filters Name="group-id",Values="$sg_group" \
-        --query "SecurityGroupRules[*].{Name:Description,ID:SecurityGroupRuleId}" \
-    )
-    rule_names=($(echo $rules | jq -r '.[].Name'))
-    rule_ids=($(echo $rules | jq -r '.[].ID'))
 
+    # Get the exiting rule and parse them
+    rules=$(aws ec2 describe-security-group-rules \
+            --filters 'Name="group-id",Values="sg-xxxxxxxxxxxxxxxxx"' \
+            --query "SecurityGroupRules[*].{Name:Description,ID:SecurityGroupRuleId}")
+
+    IFS=$'\n' rule_names=($(echo "$rules" | jq -r '.[].Name'))
+    IFS=$'\n' rule_ids=($(echo "$rules" | jq -r '.[].ID'))
+
+    # Loop each rule
     for g in "${rule_names[@]}"
     do
-        counter=$(( counter + 1 ))
-        if [ "$user" == "$g" ]
+        if [[ "$user" == "$g" ]]
         then
             existing_user=true
             break
         fi
+        counter=$(( counter + 1 ))
     done
 
-    if [ $existing_user == true ]
-    then
+    if [[ "$existing_user" == true ]]
+    then 
+        # Update inbound rule
         aws ec2 modify-security-group-rules \
-             --group-id $sg_group \
-             --security-group-rules SecurityGroupRuleId="${rule_ids[$counter]}",SecurityGroupRule="{Description="$user",IpProtocol=TCP,FromPort=22,ToPort=22,CidrIpv4=$cidr}" \
-             >> /dev/null
-        echo "Security group updated with IP '$ip' for user '$user'."
-        exit 0
-    else
+             --group-id sg-xxxxxxxxxxxxxxxxx \
+             --security-group-rules "SecurityGroupRuleId=${rule_ids[$counter]},SecurityGroupRule={Description=$user,IpProtocol=tcp,FromPort=22,ToPort=22,CidrIpv4=$cidr}" \
+             > /dev/null
+        echo "Inbound rule updated with IP '$ip' for user '$user'."
+    else 
+        # Create inbound rule
         aws ec2 authorize-security-group-ingress \
-            --group-id $sg_group \
-            --ip-permissions IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges="[{CidrIp=$cidr,Description='$user'}]" \
-            >> /dev/null
-        echo "Security group created with IP '$ip' for user '$user'."
-        exit 0
+            --group-id sg-xxxxxxxxxxxxxxxxx \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$cidr,Description=$user}]" \
+            > /dev/null
+        echo "Inbound rule created with IP '$ip' for user '$user'."
     fi
 }
 
-# Uploads your public key to the bastion host.
 key () {
-    # Pending implementation.
-    #
-    # Upload user public key to S3
-    # Triggers Lambda
-    # Systems Manager(Run Command)
-    # Add key(s) from S3 bucket to ~/.ssh/authorized_keys
-    exit 0
+    public_keys=($(ls ~/.ssh/*.pub))
+    PS3='Please select the SSH public key to upload: '
+    select key in "${public_keys[@]}"
+    do
+        if [[ -n $key ]]; then
+            echo "Selected key is: $key"
+            pubkey_content=$(cat "$key")
+            formatted_pubkey_content=$(printf "%s\\n" "$pubkey_content")
+            aws lambda invoke \
+                --function-name SSHKeyToBastion \
+                --invocation-type RequestResponse \
+                --payload '{"sshKey":"'"$formatted_pubkey_content"'"}' \
+                --cli-binary-format raw-in-base64-out \
+                response.json
+            
+            if [[ $? -eq 0 ]]; then
+                # Optionally, inspect response.json or output to determine success
+                echo "Lambda function invoked successfully. Checking response..."
+                
+                # Extract statusCode and body message from response.json
+                statusCode=$(jq -r '.statusCode' response.json)
+                responseBody=$(jq -r '.body' response.json)
+
+                # Check if statusCode is 200 for success
+                if [[ $statusCode -eq 200 ]]; then
+                    echo "SSH public key upload successful."
+                    echo "Message: $responseBody"
+                else
+                    echo "SSH public key upload failed."
+                    echo "Error: $responseBody"
+                    return 1
+                fi
+            else
+                echo "Failed to invoke Lambda function."
+                return 1
+            fi
+            break
+        else
+            echo "No key selected."
+            return 1
+        fi
+    done
+    return 0
 }
 
 input=$1
 case $input
 in
-    ip) ip $@
+    ip) ip "$@"
             ;;
-    key) key $@
+    key) key "$@"
             ;;
     *) echo "Invalid input"
        exit ;;
